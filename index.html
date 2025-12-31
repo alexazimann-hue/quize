@@ -20,16 +20,35 @@
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc, deleteDoc, collection, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-        // Configuration Firebase
-        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        // Récupération sécurisée de la configuration Firebase injectée par l'environnement
+        const getFirebaseConfig = () => {
+            try {
+                if (typeof __firebase_config !== 'undefined') {
+                    return JSON.parse(__firebase_config);
+                }
+                if (window.__firebase_config) {
+                    return JSON.parse(window.__firebase_config);
+                }
+            } catch (e) {
+                console.error("Erreur de parsing config Firebase", e);
+            }
+            return null;
+        };
+
+        const firebaseConfig = getFirebaseConfig();
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'quiz-familial-prod';
+
+        // Initialisation des services uniquement si la config est présente
+        let app, auth, db;
+        if (firebaseConfig && firebaseConfig.apiKey) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
 
         const { useState, useEffect, useCallback } = React;
 
-        // Composant Icon corrigé avec des fragments JSX <>...</> pour les éléments multiples
+        // Composant Icon
         const Icon = ({ name, size = 20, className = "" }) => {
             const icons = {
                 trophy: <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 5h1.5a2.5 2.5 0 0 0 0-5H18M12 22v-4m-7-2 2-2h10l2 2m-13-8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6H5z"/>,
@@ -89,8 +108,14 @@
             const [selectedAnswer, setSelectedAnswer] = useState(null);
             const [showResult, setShowResult] = useState(false);
             const [availableGames, setAvailableGames] = useState([]);
+            const [error, setError] = useState(null);
 
             useEffect(() => {
+                if (!auth) {
+                    setError("Configuration Firebase manquante ou invalide.");
+                    return;
+                }
+
                 const initAuth = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -100,6 +125,7 @@
                         }
                     } catch (err) {
                         console.error("Erreur d'authentification:", err);
+                        setError("Impossible de se connecter au serveur de jeu.");
                     }
                 };
 
@@ -114,7 +140,7 @@
             }, []);
 
             useEffect(() => {
-                if (!authReady || !user || view !== 'lobby') return;
+                if (!authReady || !user || !db || view !== 'lobby') return;
                 
                 const sessionsRef = collection(db, 'artifacts', appId, 'public', 'data', 'sessions');
                 const unsubscribe = onSnapshot(sessionsRef, (snapshot) => {
@@ -128,7 +154,7 @@
             }, [authReady, user, view]);
 
             useEffect(() => {
-                if (!authReady || !user || view === 'lobby' || !gameState?.id) return;
+                if (!authReady || !user || !db || view === 'lobby' || !gameState?.id) return;
                 
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
                 const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
@@ -154,7 +180,7 @@
             }, [authReady, user, view, gameState?.id]);
 
             const createGame = async () => {
-                if (!authReady || !user) return;
+                if (!authReady || !user || !db) return;
                 const gameId = `game_${user.uid.slice(0, 5)}`;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameId);
                 const newGame = { 
@@ -173,7 +199,7 @@
             };
 
             const joinGame = async (game) => {
-                if (!authReady || !user) return;
+                if (!authReady || !user || !db) return;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', game.id);
                 try {
                     await updateDoc(gameDocRef, { players: arrayUnion(user.uid) });
@@ -183,7 +209,7 @@
             };
 
             const launchGame = async () => {
-                if (!gameState || !user) return;
+                if (!gameState || !user || !db) return;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
                 await updateDoc(gameDocRef, { status: 'playing' });
                 setView('playing');
@@ -196,7 +222,7 @@
             };
 
             const nextQuestion = async () => {
-                if (!gameState) return;
+                if (!gameState || !db) return;
                 const nextIndex = gameState.currentQuestionIndex + 1;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
                 if (nextIndex < QUIZ_DATA.length) {
@@ -205,6 +231,18 @@
                     await updateDoc(gameDocRef, { status: 'finished' });
                 }
             };
+
+            if (error) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-red-50 p-6">
+                        <div className="bg-white p-8 rounded-3xl shadow-lg border border-red-100 max-w-sm text-center">
+                            <Icon name="x-circle" size={48} className="text-red-500 mx-auto mb-4" />
+                            <h2 className="text-xl font-bold text-slate-800 mb-2">Erreur de connexion</h2>
+                            <p className="text-slate-500 text-sm">{error}</p>
+                        </div>
+                    </div>
+                );
+            }
 
             if (!authReady) {
                 return (
