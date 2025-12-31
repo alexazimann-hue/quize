@@ -1,0 +1,399 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  updateDoc, 
+  deleteDoc,
+  collection,
+  arrayUnion
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken,
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { Trophy, Users, Play, XCircle, Music, Image as ImageIcon, Brain, Globe, CheckCircle2, PlusCircle, LogIn, QrCode } from 'lucide-react';
+
+// --- Configuration Firebase ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'quiz-familial-v2';
+
+// --- Données du Quiz ---
+const QUIZ_DATA = [
+  { 
+    id: 1, type: 'Culture', category: 'Géographie', 
+    question: "Quel est le plus petit pays du monde ?", 
+    options: ["Monaco", "Le Vatican", "Saint-Marin", "Andorre"],
+    response: "Le Vatican" 
+  },
+  { 
+    id: 2, type: 'Culture', category: 'Gastronomie', 
+    question: "Quel ingrédient est à la base du chocolat ?", 
+    options: ["Le café", "La vanille", "Le cacao", "Le sucre"],
+    response: "Le cacao" 
+  },
+  { 
+    id: 3, type: 'Logique', category: 'Chiffres', 
+    question: "Si j'ai 3 pommes et que tu m'en prends 2, combien de pommes as-tu ?", 
+    options: ["1 pomme", "2 pommes", "3 pommes", "Aucune"],
+    response: "2 pommes" 
+  },
+  { 
+    id: 4, type: 'Logique', category: 'Devinette', 
+    question: "Qu'est-ce que tout le monde possède mais que les autres utilisent plus que vous ?", 
+    options: ["Votre voiture", "Votre argent", "Votre prénom", "Votre temps"],
+    response: "Votre prénom" 
+  }
+];
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [gameState, setGameState] = useState(null);
+  const [view, setView] = useState('lobby'); // 'lobby', 'waiting', 'playing'
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [showResult, setShowResult] = useState(false);
+  const [availableGames, setAvailableGames] = useState([]);
+
+  // 1. Authentification
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Erreur Auth:", err);
+      }
+    };
+    initAuth();
+    const unsubscribeAuth = onAuthStateChanged(auth, setUser);
+    return () => unsubscribeAuth();
+  }, []);
+
+  // 2. Recherche des parties disponibles
+  useEffect(() => {
+    if (!user || view !== 'lobby') return;
+    const sessionsRef = collection(db, 'artifacts', appId, 'public', 'data', 'sessions');
+    const unsubscribe = onSnapshot(sessionsRef, (snapshot) => {
+      const games = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAvailableGames(games.filter(g => g.status === 'waiting' || g.status === 'playing'));
+    });
+    return () => unsubscribe();
+  }, [user, view]);
+
+  // 3. Écoute de la partie en cours
+  useEffect(() => {
+    if (!user || view === 'lobby' || !gameState?.id) return;
+    
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
+    
+    const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setGameState(prev => ({ ...prev, ...data }));
+        
+        // Si l'admin lance la partie, on change de vue pour les joueurs
+        if (data.status === 'playing' && view === 'waiting') {
+          setView('playing');
+        }
+
+        // Reset local si on change de question
+        if (gameState && data.currentQuestionIndex !== gameState.currentQuestionIndex) {
+          setSelectedAnswer(null);
+          setShowResult(false);
+        }
+      } else {
+        setView('lobby');
+        setGameState(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user, view, gameState?.id, gameState?.currentQuestionIndex]);
+
+  // Actions
+  const createGame = async () => {
+    if (!user) return;
+    const gameId = `game_${user.uid.slice(0, 5)}`;
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameId);
+    
+    const newGame = {
+      id: gameId,
+      status: 'waiting', // On commence en salle d'attente
+      currentQuestionIndex: 0,
+      adminId: user.uid,
+      players: [user.uid],
+      createdAt: Date.now()
+    };
+
+    await setDoc(gameDocRef, newGame);
+    setGameState(newGame);
+    setView('waiting');
+  };
+
+  const joinGame = async (game) => {
+    if (!user) return;
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', game.id);
+    
+    // Ajouter le joueur à la liste
+    await updateDoc(gameDocRef, {
+      players: arrayUnion(user.uid)
+    });
+
+    setGameState(game);
+    setView(game.status === 'playing' ? 'playing' : 'waiting');
+  };
+
+  const launchGame = async () => {
+    if (!gameState || gameState.adminId !== user?.uid) return;
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
+    await updateDoc(gameDocRef, { status: 'playing' });
+    setView('playing');
+  };
+
+  const stopGame = async () => {
+    if (!user || !gameState) return;
+    if (gameState.adminId === user.uid) {
+      const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
+      await deleteDoc(gameDocRef);
+    }
+    setView('lobby');
+    setGameState(null);
+  };
+
+  const handleAnswerSelect = (option) => {
+    if (showResult) return;
+    setSelectedAnswer(option);
+    setShowResult(true);
+  };
+
+  const nextQuestion = async () => {
+    if (!gameState || gameState.adminId !== user?.uid) return;
+    const nextIndex = gameState.currentQuestionIndex + 1;
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
+
+    if (nextIndex < QUIZ_DATA.length) {
+      await updateDoc(gameDocRef, { currentQuestionIndex: nextIndex });
+    } else {
+      await updateDoc(gameDocRef, { status: 'finished' });
+    }
+  };
+
+  // --- RENDU LOBBY ---
+  if (view === 'lobby') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans text-slate-900">
+        <div className="max-w-md w-full space-y-6">
+          <div className="bg-white rounded-3xl shadow-xl p-8 text-center border border-slate-100">
+            <div className="bg-indigo-100 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <Trophy className="text-indigo-600 w-10 h-10" />
+            </div>
+            <h1 className="text-3xl font-bold mb-2 text-slate-800">Quiz Familial</h1>
+            <p className="text-slate-500 mb-8 italic">Le salon des génies</p>
+            
+            <button 
+              onClick={createGame}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 mb-6"
+            >
+              <PlusCircle size={20} /> Créer une nouvelle partie
+            </button>
+
+            <div className="relative flex py-3 items-center">
+              <div className="flex-grow border-t border-slate-200"></div>
+              <span className="flex-shrink mx-4 text-slate-400 text-sm font-bold uppercase tracking-widest">Parties en cours</span>
+              <div className="flex-grow border-t border-slate-200"></div>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              {availableGames.length > 0 ? (
+                availableGames.map(game => (
+                  <button
+                    key={game.id}
+                    onClick={() => joinGame(game)}
+                    className="w-full bg-white border-2 border-slate-100 hover:border-indigo-500 p-4 rounded-xl flex items-center justify-between transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="bg-slate-100 p-2 rounded-lg group-hover:bg-indigo-50">
+                        <Users size={18} className="text-slate-600 group-hover:text-indigo-600" />
+                      </div>
+                      <div className="text-left">
+                        <span className="block font-bold text-slate-700">Salon de {game.id.split('_')[1]}</span>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">
+                          {game.status === 'waiting' ? 'En attente' : 'En jeu'} • {game.players?.length || 0} joueur(s)
+                        </span>
+                      </div>
+                    </div>
+                    <LogIn size={18} className="text-slate-300 group-hover:text-indigo-600" />
+                  </button>
+                ))
+              ) : (
+                <p className="text-sm text-slate-400 py-4 italic">Aucun salon actif... Créez le vôtre !</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDU SALLE D'ATTENTE (WAITING) ---
+  if (view === 'waiting') {
+    const isAdmin = gameState?.adminId === user?.uid;
+    // URL factice pour le QR code (normalement l'URL de l'application)
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${window.location.href}`;
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans text-slate-900">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-slate-100 text-center">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-slate-800">Salle d'attente</h2>
+            <button onClick={stopGame} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors">
+              <XCircle size={24} />
+            </button>
+          </div>
+
+          <div className="bg-slate-50 p-6 rounded-2xl mb-6 flex flex-col items-center">
+            <img 
+              src={qrCodeUrl} 
+              alt="QR Code pour rejoindre" 
+              className="w-48 h-48 mb-4 border-8 border-white rounded-xl shadow-sm"
+              onError={(e) => e.target.src = 'https://via.placeholder.com/200?text=QR+Code'}
+            />
+            <p className="text-sm text-slate-500 font-medium">Scannez pour rejoindre la partie</p>
+            <div className="mt-2 px-4 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold">
+              ID: {gameState?.id}
+            </div>
+          </div>
+
+          <div className="text-left mb-8">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Joueurs ({gameState?.players?.length || 0})</span>
+              <Users size={16} className="text-slate-400" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {gameState?.players?.map((pId, i) => (
+                <div key={i} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-bold border border-indigo-100 flex items-center gap-2">
+                   <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></div>
+                   Joueur {pId.slice(0, 4)}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {isAdmin ? (
+            <button 
+              onClick={launchGame}
+              disabled={gameState?.players?.length < 1}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+            >
+              <Play size={20} /> Lancer le quiz !
+            </button>
+          ) : (
+            <div className="bg-indigo-50 p-4 rounded-2xl">
+              <p className="text-indigo-600 font-bold animate-pulse text-sm">En attente de l'administrateur...</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDU JEU ---
+  if (gameState?.status === 'finished') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-sm border border-slate-100">
+           <Trophy className="mx-auto text-yellow-500 mb-4" size={60} />
+           <h2 className="text-2xl font-bold mb-4 text-slate-800">Quiz Terminé !</h2>
+           <p className="text-slate-500 mb-8">Bravo à tous les participants !</p>
+           <button onClick={() => setView('lobby')} className="w-full bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200">Retour au menu</button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentQuestion = QUIZ_DATA[gameState.currentQuestionIndex];
+  const isAdmin = gameState.adminId === user?.uid;
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
+      <div className="max-w-3xl mx-auto">
+        <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-100 p-2 rounded-lg"><Users className="text-indigo-600" size={20} /></div>
+            <div>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-tighter">Question {gameState.currentQuestionIndex + 1}/{QUIZ_DATA.length}</p>
+              <p className="text-slate-800 font-bold">{isAdmin ? "👑 Admin" : "👤 Joueur"}</p>
+            </div>
+          </div>
+          <button onClick={stopGame} className="text-red-600 bg-red-50 hover:bg-red-100 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 transition-colors">
+            <XCircle size={16} /> {isAdmin ? "Terminer" : "Quitter"}
+          </button>
+        </div>
+
+        <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden border border-slate-100">
+          <div className="bg-indigo-600 p-6 text-white flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Brain size={20} />
+              <span className="font-bold uppercase tracking-widest text-xs">{currentQuestion.category}</span>
+            </div>
+            <div className="text-xs bg-indigo-500 px-2 py-1 rounded-md font-bold">
+              ID: {gameState.id.split('_')[1]}
+            </div>
+          </div>
+
+          <div className="p-8 md:p-12 text-center">
+            <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-10 leading-snug">{currentQuestion.question}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {currentQuestion.options.map((option, idx) => {
+                const isCorrect = option === currentQuestion.response;
+                const isSelected = selectedAnswer === option;
+                let btnStyle = "bg-slate-50 border-2 border-slate-100 text-slate-700 hover:border-indigo-300";
+                
+                if (showResult) {
+                  if (isCorrect) btnStyle = "bg-emerald-50 border-emerald-500 text-emerald-700 ring-4 ring-emerald-100";
+                  else if (isSelected) btnStyle = "bg-red-50 border-red-500 text-red-700";
+                  else btnStyle = "bg-slate-50 border-slate-100 text-slate-300 opacity-50";
+                } else if (isSelected) btnStyle = "bg-indigo-50 border-indigo-500 text-indigo-700";
+
+                return (
+                  <button
+                    key={idx}
+                    disabled={showResult}
+                    onClick={() => handleAnswerSelect(option)}
+                    className={`p-5 rounded-2xl flex items-center justify-between font-bold transition-all ${btnStyle}`}
+                  >
+                    <span>{option}</span>
+                    {showResult && isCorrect && <CheckCircle2 className="text-emerald-500" size={20} />}
+                    {showResult && !isCorrect && isSelected && <XCircle className="text-red-500" size={20} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col items-center">
+              {showResult ? (
+                <button onClick={nextQuestion} className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-bold transition-all shadow-lg animate-bounce">
+                  {gameState.currentQuestionIndex === QUIZ_DATA.length - 1 ? "Voir les résultats" : "Question Suivante →"}
+                </button>
+              ) : (
+                <p className="text-slate-400 text-sm italic font-medium">Les joueurs réfléchissent...</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
