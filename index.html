@@ -1,399 +1,756 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quiz Familial Interactif</title>
-    <!-- Tailwind CSS pour le style -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React et ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel pour transformer le JSX dans le navigateur -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Familial Interactif - 100 Questions</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    [v-cloak] { display: none; }
+    .animate-pop {
+      animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      animation-duration: 0.4s;
+    }
+    @keyframes pop {
+      0% { transform: scale(0.9); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    
+    /* Animation de clic sur les boutons */
+    .btn-press:active { transform: scale(0.98); }
+    .option-btn { transition: all 0.2s ease; }
+  </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
-    <div id="root"></div>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
+  <div id="app" v-cloak class="max-w-2xl mx-auto p-4 md:pt-10">
+    <div class="bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
+      <!-- Barre de progression -->
+      <div class="h-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-full"></div>
 
-    <script type="text/babel" data-type="module">
-        import { initializeApp, getApp, getApps } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+      <!-- 1. CHARGEMENT INITIAL -->
+      <div v-if="loading" class="p-20 text-center">
+        <div class="animate-spin inline-block w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full mb-6"></div>
+        <p class="text-slate-400 font-black uppercase tracking-widest text-sm text-indigo-600">Connexion...</p>
+      </div>
 
-        // Fonction de récupération ultra-robuste de la configuration
-        const getFirebaseConfig = () => {
-            const config = window.__firebase_config || (typeof __firebase_config !== 'undefined' ? __firebase_config : null);
-            if (!config) return null;
-            return typeof config === 'string' ? JSON.parse(config) : config;
-        };
+      <!-- 2. ACCUEIL -->
+      <div v-else-if="!role" class="p-8 md:p-12 text-center animate-pop">
+        <div class="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-lg">
+          <i data-lucide="trophy" class="w-10 h-10 text-indigo-600"></i>
+        </div>
+        <h1 class="text-4xl font-black mb-2 text-slate-900">Quiz Family</h1>
+        <p class="text-slate-500 mb-10 italic">100+ questions disponibles !</p>
 
-        const config = getFirebaseConfig();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'quiz-familial-prod';
+        <!-- Créer partie (Admin) -->
+        <div class="space-y-6">
+          <input 
+            ref="nameInput" 
+            v-model="tempName" 
+            placeholder="Ton Prénom" 
+            class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center font-bold text-lg bg-slate-50 transition-all shadow-inner"
+          >
+          <button 
+            @click="initAdmin" 
+            :disabled="!tempName"
+            class="btn-press w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-3"
+          >
+            <i data-lucide="crown" class="w-6 h-6"></i>
+            Créer la partie
+          </button>
+        </div>
 
-        // Initialisation sécurisée hors du composant pour éviter les re-rendus
-        let app, auth, db;
-        if (config && config.apiKey) {
-            try {
-                app = getApps().length > 0 ? getApp() : initializeApp(config);
-                auth = getAuth(app);
-                db = getFirestore(app);
-            } catch (e) {
-                console.error("Erreur d'initialisation Firebase:", e);
-            }
-        }
+        <div class="flex items-center gap-4 py-2">
+          <div class="flex-grow border-t-2 border-slate-100"></div>
+          <span class="text-[10px] text-slate-300 uppercase font-black tracking-widest">REJOINDRE</span>
+          <div class="flex-grow border-t-2 border-slate-100"></div>
+        </div>
 
-        const { useState, useEffect } = React;
+        <!-- Rejoindre partie (Joueur) -->
+        <div class="space-y-3">
+          <input 
+            v-model="tempId" 
+            placeholder="Code Session" 
+            class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center uppercase font-black text-xl bg-slate-50 tracking-widest shadow-inner"
+          >
+          <p v-if="errorMessage" class="text-red-500 text-xs font-bold">{{ errorMessage }}</p>
+          <button 
+            @click="joinGame" 
+            :disabled="!tempName || !tempId"
+            class="btn-press w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-slate-800 transition-all disabled:opacity-50"
+          >
+            Rejoindre la partie
+          </button>
+        </div>
+      </div>
 
-        const Icon = ({ name, size = 20, className = "" }) => {
-            const icons = {
-                trophy: <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 5h1.5a2.5 2.5 0 0 0 0-5H18M12 22v-4m-7-2 2-2h10l2 2m-13-8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6H5z"/>,
-                users: <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8m13 10v-2a4 4 0 0 0-3-3.87m-4-12a4 4 0 0 1 0 7.75"/>,
-                "plus-circle": <><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></>,
-                "log-in": <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>,
-                "x-circle": <><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6m0-6 6 6"/></>,
-                play: <polygon points="5 3 19 12 5 21 5 3"/>,
-                "check-circle": <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>
-            };
-            return (
-                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                    {icons[name] || null}
-                </svg>
-            );
-        };
+      <!-- 3. SALON D'ATTENTE (LOBBY) -->
+      <div v-else-if="session && session.status === 'lobby'" class="p-8 text-center animate-pop">
+        <h2 class="text-2xl font-black mb-2 text-slate-900">Préparation de la partie</h2>
+        <p class="text-indigo-500 font-bold mb-10">
+          Tu es dans la partie de <span class="underline">{{ session.adminName }}</span> (Admin)
+        </p>
 
-        const QUIZ_DATA = [
-            { id: 1, category: 'Géographie', question: "Quel est le plus petit pays du monde ?", options: ["Monaco", "Le Vatican", "Saint-Marin", "Andorre"], response: "Le Vatican" },
-            { id: 2, category: 'Gastronomie', question: "Quel ingrédient est à la base du chocolat ?", options: ["Le café", "La vanille", "Le cacao", "Le sucre"], response: "Le cacao" },
-            { id: 3, category: 'Logique', question: "Si j'ai 3 pommes et que tu m'en prends 2, combien de pommes as-tu ?", options: ["1 pomme", "2 pommes", "3 pommes", "Aucune"], response: "2 pommes" },
-            { id: 4, category: 'Devinette', question: "Qu'est-ce que tout le monde possède mais que les autres utilisent plus que vous ?", options: ["Votre voiture", "Votre argent", "Votre prénom", "Votre temps"], response: "Votre prénom" }
-        ];
+        <div class="flex flex-col md:flex-row gap-10 items-center justify-center mb-12">
+          <!-- QR Code -->
+          <div class="bg-white p-6 rounded-2rem shadow-xl border-4 border-slate-50 flex flex-col items-center">
+            <div id="qrcode" class="mb-6 bg-white p-2 border border-slate-100 min-h-[128px] min-w-[128px] flex items-center justify-center"></div>
+            <div class="px-8 py-3 bg-indigo-50 rounded-2xl font-black text-3xl text-indigo-600 tracking-widest uppercase">{{ session.id }}</div>
+          </div>
 
-        function App() {
-            const [user, setUser] = useState(null);
-            const [authReady, setAuthReady] = useState(false);
-            const [gameState, setGameState] = useState(null);
-            const [view, setView] = useState('lobby');
-            const [selectedAnswer, setSelectedAnswer] = useState(null);
-            const [showResult, setShowResult] = useState(false);
-            const [availableGames, setAvailableGames] = useState([]);
-            const [error, setError] = useState(null);
-
-            useEffect(() => {
-                if (!auth) {
-                    setError("Impossible de charger la configuration du jeu.");
-                    return;
-                }
-
-                const performAuth = async () => {
-                    try {
-                        // On attend un cycle pour être sûr que tout est prêt
-                        await new Promise(res => setTimeout(res, 300));
-
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    } catch (err) {
-                        console.error("Auth Fail:", err);
-                        // On force un retry anonyme si le token échoue
-                        try { await signInAnonymously(auth); } 
-                        catch (e) { setError("La connexion au serveur a échoué."); }
-                    }
-                };
-
-                const unsubscribe = onAuthStateChanged(auth, (u) => {
-                    if (u) {
-                        setUser(u);
-                        setAuthReady(true);
-                    } else {
-                        performAuth();
-                    }
-                });
-
-                return () => unsubscribe();
-            }, []);
-
-            // Chargement des sessions
-            useEffect(() => {
-                if (!authReady || !user || !db || view !== 'lobby') return;
-                
-                try {
-                    const sessionsRef = collection(db, 'artifacts', appId, 'public', 'data', 'sessions');
-                    const unsubscribe = onSnapshot(sessionsRef, (snapshot) => {
-                        const games = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                        setAvailableGames(games.filter(g => g.status !== 'finished'));
-                    }, (err) => {
-                        console.error("Snapshot error:", err);
-                    });
-                    return () => unsubscribe();
-                } catch (e) { console.error(e); }
-            }, [authReady, user, view]);
-
-            // Sync de la partie
-            useEffect(() => {
-                if (!authReady || !user || !db || view === 'lobby' || !gameState?.id) return;
-                
-                const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
-                const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        setGameState(prev => ({ ...prev, ...data }));
-                        if (data.status === 'playing' && view === 'waiting') setView('playing');
-                        if (gameState && data.currentQuestionIndex !== gameState.currentQuestionIndex) {
-                            setSelectedAnswer(null);
-                            setShowResult(false);
-                        }
-                    } else {
-                        setView('lobby');
-                    }
-                });
-                return () => unsubscribe();
-            }, [authReady, user, view, gameState?.id]);
-
-            const createGame = async () => {
-                if (!db || !user) return;
-                const gameId = `session_${Math.random().toString(36).substring(2, 7)}`;
-                const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameId);
-                const newGame = { 
-                    id: gameId, 
-                    status: 'waiting', 
-                    currentQuestionIndex: 0, 
-                    adminId: user.uid, 
-                    players: [user.uid], 
-                    createdAt: Date.now() 
-                };
-                await setDoc(gameDocRef, newGame);
-                setGameState(newGame);
-                setView('waiting');
-            };
-
-            const joinGame = async (game) => {
-                if (!db || !user) return;
-                const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', game.id);
-                await updateDoc(gameDocRef, { players: arrayUnion(user.uid) });
-                setGameState(game);
-                setView(game.status === 'playing' ? 'playing' : 'waiting');
-            };
-
-            const launchGame = async () => {
-                if (!gameState || !db) return;
-                const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
-                await updateDoc(gameDocRef, { status: 'playing' });
-            };
-
-            const handleAnswerSelect = (option) => {
-                if (showResult) return;
-                setSelectedAnswer(option);
-                setShowResult(true);
-            };
-
-            const nextQuestion = async () => {
-                if (!gameState || !db) return;
-                const nextIndex = gameState.currentQuestionIndex + 1;
-                const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
-                if (nextIndex < QUIZ_DATA.length) {
-                    await updateDoc(gameDocRef, { currentQuestionIndex: nextIndex });
-                } else {
-                    await updateDoc(gameDocRef, { status: 'finished' });
-                }
-            };
-
-            if (error) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-                        <div className="bg-white p-8 rounded-3xl shadow-xl border border-red-100 text-center max-w-sm">
-                            <Icon name="x-circle" size={48} className="text-red-500 mx-auto mb-4" />
-                            <h2 className="text-xl font-bold text-slate-800 mb-2">Erreur Fatale</h2>
-                            <p className="text-slate-500 text-sm mb-6">{error}</p>
-                            <button onClick={() => window.location.reload()} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold">Réessayer</button>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (!authReady) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-                        <div className="text-center">
-                            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className="text-slate-400 font-medium animate-pulse">Initialisation sécurisée...</p>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (view === 'lobby') {
-                return (
-                    <div className="min-h-screen flex flex-col items-center justify-center p-4">
-                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-8 text-center border">
-                            <div className="bg-indigo-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-indigo-200">
-                                <Icon name="trophy" size={40} className="text-white" />
-                            </div>
-                            <h1 className="text-4xl font-black mb-2 text-slate-800 tracking-tight">Quiz Family</h1>
-                            <p className="text-slate-400 mb-10">Prêt à tester vos connaissances ?</p>
-                            
-                            <button onClick={createGame} className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl mb-10 flex items-center justify-center gap-3 hover:bg-indigo-700 transition-all active:scale-95">
-                                <Icon name="plus-circle" /> CRÉER UN SALON
-                            </button>
-
-                            <div className="text-left">
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping"></span>
-                                    Salons en ligne
-                                </h3>
-                                <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                                    {availableGames.length > 0 ? availableGames.map(game => (
-                                        <button key={game.id} onClick={() => joinGame(game)} className="w-full bg-slate-50 border border-slate-100 p-5 rounded-2xl flex items-center justify-between hover:border-indigo-500 hover:bg-white transition-all group">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-10 h-10 rounded-xl bg-white border flex items-center justify-center text-lg">🎮</div>
-                                                <div className="text-left">
-                                                    <p className="font-bold text-slate-700">Salon {game.id.split('_')[1]}</p>
-                                                    <p className="text-[10px] text-slate-400 font-bold">{game.players?.length || 0} JOUEURS</p>
-                                                </div>
-                                            </div>
-                                            <Icon name="log-in" className="text-slate-300 group-hover:text-indigo-600" />
-                                        </button>
-                                    )) : (
-                                        <div className="py-8 border-2 border-dashed border-slate-100 rounded-2xl text-slate-300 text-sm font-medium">
-                                            Aucun salon actif pour le moment
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (view === 'waiting') {
-                const isAdmin = gameState?.adminId === user?.uid;
-                return (
-                    <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center">
-                            <h2 className="text-2xl font-black mb-8">En attente des joueurs</h2>
-                            <div className="bg-indigo-50 border-2 border-indigo-100 p-8 rounded-3xl mb-8 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10"><Icon name="users" size={80} /></div>
-                                <p className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">Code d'accès</p>
-                                <p className="text-4xl font-black text-indigo-600 tracking-[0.2em]">{gameState?.id.split('_')[1]?.toUpperCase()}</p>
-                            </div>
-                            <div className="mb-10 text-left">
-                                <p className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Équipe ({gameState?.players?.length || 0})</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {gameState?.players?.map((p, i) => (
-                                        <div key={i} className="bg-white border-2 border-slate-100 px-4 py-2 rounded-xl flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-                                            <span className="font-bold text-slate-600 text-sm">Joueur {p.slice(-4)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            {isAdmin ? (
-                                <button onClick={launchGame} className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl flex items-center justify-center gap-3 hover:bg-indigo-700 transition-all active:scale-95">
-                                    <Icon name="play" /> DÉMARRER LA PARTIE
-                                </button>
-                            ) : (
-                                <div className="bg-slate-50 text-slate-400 p-5 rounded-2xl font-bold border border-slate-100 italic">
-                                    L'organisateur va lancer le quiz...
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                );
-            }
-
-            if (gameState?.status === 'finished') {
-                return (
-                    <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center border">
-                            <div className="text-6xl mb-6 animate-bounce">🏆</div>
-                            <h2 className="text-3xl font-black mb-4">Bravo !</h2>
-                            <p className="text-slate-500 mb-10 leading-relaxed">La partie est terminée. Merci d'avoir joué au Quiz Family !</p>
-                            <button onClick={() => setView('lobby')} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg">RETOUR AU SALON</button>
-                        </div>
-                    </div>
-                );
-            }
-
-            const currentQ = QUIZ_DATA[gameState?.currentQuestionIndex || 0];
-            const isAdmin = gameState?.adminId === user?.uid;
-
-            return (
-                <div className="min-h-screen p-4 md:p-10 flex flex-col items-center bg-slate-50">
-                    <div className="max-w-2xl w-full">
-                        <div className="flex justify-between items-end mb-8 px-4">
-                            <div>
-                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Session active</h4>
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-3 h-3 rounded-full ${isAdmin ? 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]'}`}></div>
-                                    <span className="font-black text-slate-800 text-sm tracking-tight">{isAdmin ? "ORGANISATEUR" : "JOUEUR"}</span>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Progression</p>
-                                <p className="font-black text-indigo-600 text-lg">{(gameState?.currentQuestionIndex || 0) + 1} / {QUIZ_DATA.length}</p>
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-white">
-                            <div className="h-3 w-full bg-slate-100">
-                                <div className="h-full bg-indigo-600 transition-all duration-700 ease-out" style={{width: `${((gameState?.currentQuestionIndex || 0) + 1) / QUIZ_DATA.length * 100}%`}}></div>
-                            </div>
-                            <div className="p-8 md:p-16">
-                                <div className="inline-block bg-indigo-50 text-indigo-600 px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] mb-8 border border-indigo-100">
-                                    {currentQ?.category}
-                                </div>
-                                <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-12 leading-tight tracking-tight">{currentQ?.question}</h2>
-                                <div className="grid grid-cols-1 gap-4">
-                                    {currentQ?.options.map((opt, i) => {
-                                        const isCorrect = opt === currentQ.response;
-                                        const isSelected = selectedAnswer === opt;
-                                        let style = "bg-slate-50 border-2 border-slate-50 text-slate-700 hover:bg-white hover:border-indigo-100 hover:shadow-md";
-                                        
-                                        if (showResult) {
-                                            if (isCorrect) style = "bg-emerald-50 border-emerald-500 text-emerald-800 ring-8 ring-emerald-50 scale-[1.02] shadow-xl";
-                                            else if (isSelected) style = "bg-red-50 border-red-200 text-red-800 opacity-60";
-                                            else style = "opacity-30 grayscale-[0.5]";
-                                        } else if (isSelected) {
-                                            style = "bg-indigo-50 border-indigo-600 text-indigo-800 ring-8 ring-indigo-50 shadow-lg";
-                                        }
-
-                                        return (
-                                            <button 
-                                                key={i} 
-                                                disabled={showResult} 
-                                                onClick={() => handleAnswerSelect(opt)} 
-                                                className={`p-7 rounded-[1.5rem] font-black transition-all text-left flex justify-between items-center text-lg ${style}`}
-                                            >
-                                                {opt}
-                                                {showResult && isCorrect && <Icon name="check-circle" className="text-emerald-500" size={24} />}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                            {isAdmin && showResult && (
-                                <div className="p-10 bg-slate-50/50 border-t border-slate-100 flex justify-center">
-                                    <button onClick={nextQuestion} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-2xl hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-3">
-                                        {(gameState?.currentQuestionIndex || 0) === QUIZ_DATA.length - 1 ? "VOIR LE CLASSEMENT" : "QUESTION SUIVANTE"}
-                                        <Icon name="play" size={16} />
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+          <!-- Liste Joueurs -->
+          <div class="flex-1 w-full text-left bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <p class="text-xs font-black uppercase text-slate-400 tracking-widest mb-6 flex items-center gap-2">
+              <i data-lucide="users" class="w-4 h-4"></i>
+              Joueurs ({{ players.length }})
+            </p>
+            <div class="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-2 custom-scrollbar">
+              <div 
+                v-for="p in players" 
+                :key="p.id" 
+                class="p-3 bg-white rounded-2xl border border-slate-200 font-bold flex items-center justify-between shadow-sm animate-pop"
+              >
+                <div class="flex items-center gap-3">
+                  <div :class="getPlayerColor(p.name)" class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black uppercase shadow-sm">
+                    {{ p.name.charAt(0) }}
+                  </div>
+                  <span>{{ p.name }}</span>
                 </div>
-            );
-        }
+                <div class="w-2 h-2 rounded-full bg-green-500"></div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-    <style>
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
-    </style>
+        <div v-if="role === 'admin'" class="space-y-4">
+          <button 
+            @click="updateStatus('playing')" 
+            :disabled="players.length === 0"
+            class="btn-press w-full py-6 bg-indigo-600 text-white rounded-2xl font-black text-2xl shadow-xl hover:bg-indigo-700 disabled:opacity-50"
+          >
+            🚀 LANCER LE QUIZ !
+          </button>
+        </div>
+        <div v-else class="p-8 bg-indigo-50 text-indigo-600 rounded-2rem font-black text-xl animate-pulse">
+          Attente du lancement...
+        </div>
+      </div>
+
+      <!-- 4. EN JEU -->
+      <div v-else-if="session && session.status === 'playing' && !isWaitingForBlock" class="p-6 md:p-12 animate-pop">
+        <!-- Warning si arrive en cours -->
+        <div 
+          v-if="role === 'player' && playerLocalIndex > session.currentBlock * 5" 
+          class="bg-amber-50 text-amber-700 p-3 rounded-xl text-[10px] font-bold mb-4 flex items-center gap-2"
+        >
+          <i data-lucide="alert-circle" class="w-3 h-3"></i>
+          Tu arrives en cours de route !
+        </div>
+
+        <div class="flex justify-between items-center mb-8">
+          <div class="px-4 py-2 bg-slate-100 rounded-xl text-[11px] font-black text-slate-500 uppercase tracking-tighter">
+            Question {{ playerLocalIndex + 1 }}/15
+          </div>
+          <div class="flex items-center gap-2">
+            <div :class="getPlayerColor(name)" class="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] uppercase shadow-sm">
+              {{ name.charAt(0) }}
+            </div>
+            <span class="text-sm font-black text-indigo-600">{{ name }}</span>
+          </div>
+        </div>
+
+        <h2 class="text-2xl md:text-3xl font-black mb-8 text-slate-900 leading-tight">
+          {{ currentQuestion.question }}
+        </h2>
+
+        <!-- Support Images URL et Emojis -->
+        <div v-if="currentQuestion.image" class="mb-8 p-6 bg-slate-50 rounded-[2.5rem] text-center border-2 border-slate-100 shadow-inner overflow-hidden flex items-center justify-center min-h-[160px]">
+          <img 
+            v-if="isImageUrl(currentQuestion.image)" 
+            :src="currentQuestion.image" 
+            class="max-h-48 rounded-2xl object-contain shadow-md mx-auto"
+            @error="e.target.src = 'https://placehold.co/400x300?text=Image+Non+Disponible'"
+          >
+          <div v-else class="text-7xl p-6">{{ currentQuestion.image }}</div>
+        </div>
+
+        <div class="grid gap-3 mb-8">
+          <button 
+            v-for="(opt, idx) in currentQuestion.options" 
+            :key="idx" 
+            :disabled="hasValidated" 
+            @click="selectedIdx = idx"
+            :class="[
+              'p-5 text-left rounded-2xl border-2 font-black transition-all flex items-center gap-4 option-btn btn-press',
+              getOptionClass(idx)
+            ]"
+          >
+            <span class="w-8 h-8 rounded-lg flex items-center justify-center text-sm" :class="selectedIdx === idx ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-100 text-slate-400'">
+              {{ String.fromCharCode(65 + idx) }}
+            </span>
+            <span class="text-lg">{{ opt }}</span>
+          </button>
+        </div>
+
+        <button 
+          v-if="selectedIdx !== null && !hasValidated" 
+          @click="submitAndNext"
+          class="btn-press w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-xl shadow-xl hover:bg-indigo-700 transition-all"
+        >
+          Valider ma réponse
+        </button>
+
+        <div v-if="hasValidated" class="text-center p-6 text-indigo-500 font-black animate-pulse flex flex-col items-center gap-2">
+          <i data-lucide="check-circle" class="w-6 h-6"></i>
+          Réponse enregistrée
+        </div>
+
+        <!-- Admin Controls -->
+        <div v-if="role === 'admin'" class="mt-10 p-5 bg-slate-900 text-white rounded-2rem flex justify-between items-center shadow-lg">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-indigo-500 animate-ping"></span>
+            <span class="text-[10px] uppercase font-black">Prêts ({{ playersFinishedBlock }}/{{ players.length }})</span>
+          </div>
+          <button 
+            @click="nextStep" 
+            class="px-5 py-2 bg-indigo-600 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-500"
+          >
+            Forcer Suite
+          </button>
+        </div>
+      </div>
+
+      <!-- CRAN D'ATTENTE Fin de bloc -->
+      <div v-else-if="isWaitingForBlock && session.status === 'playing'" class="p-12 text-center animate-pop">
+        <div class="w-20 h-20 bg-indigo-50 rounded-2rem flex items-center justify-center mx-auto mb-8 animate-pulse shadow-inner">
+          <i data-lucide="hourglass" class="w-10 h-10 text-indigo-400"></i>
+        </div>
+        <h2 class="text-3xl font-black mb-4">Bloc terminé !</h2>
+        <p class="text-slate-500 mb-10">Attends les autres joueurs pour voir le classement...</p>
+
+        <div class="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 mb-10 shadow-sm">
+          <div class="text-[10px] uppercase font-black text-slate-400 mb-2">Progression du groupe</div>
+          <div class="flex items-center justify-center gap-3 font-black text-4xl text-slate-700">
+            {{ playersFinishedBlock }}<span class="text-slate-200">/</span>{{ players.length }}
+          </div>
+        </div>
+
+        <button 
+          v-if="role === 'admin'" 
+          @click="nextStep" 
+          class="btn-press w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl shadow-lg"
+        >
+          Voir le Classement
+        </button>
+      </div>
+
+      <!-- 5. CLASSEMENT INTERMÉDIAIRE -->
+      <div v-else-if="session && session.status === 'checkpoint'" class="p-8 text-center animate-pop">
+        <h2 class="text-3xl font-black mb-10 text-slate-900 flex items-center justify-center gap-3">
+          <i data-lucide="bar-chart-2" class="text-indigo-600"></i>
+          Classement
+        </h2>
+
+        <!-- Podium Top 3 -->
+        <div class="flex items-end justify-center gap-2 mb-10 min-h-[160px]">
+          <!-- 3ème -->
+          <div v-if="sortedPlayers[2]" class="flex flex-col items-center">
+            <div :class="getPlayerColor(sortedPlayers[2].name)" class="w-10 h-10 rounded-full border-4 border-white shadow-md flex items-center justify-center text-white font-black uppercase">
+              {{ sortedPlayers[2].name.charAt(0) }}
+            </div>
+            <div class="bg-orange-200 w-14 h-8 rounded-t-xl mt-2 flex items-center justify-center font-black text-orange-600">3</div>
+            <span class="text-[10px] font-bold mt-1 truncate w-14">{{ sortedPlayers[2].name }}</span>
+          </div>
+
+          <!-- 1er -->
+          <div v-if="sortedPlayers[0]" class="flex flex-col items-center">
+            <i data-lucide="crown" class="w-6 h-6 text-yellow-500 mb-1"></i>
+            <div :class="getPlayerColor(sortedPlayers[0].name)" class="w-16 h-16 rounded-full border-4 border-white shadow-lg flex items-center justify-center text-white text-xl font-black uppercase">
+              {{ sortedPlayers[0].name.charAt(0) }}
+            </div>
+            <div class="bg-yellow-400 w-20 h-20 rounded-t-xl mt-2 flex items-center justify-center font-black text-yellow-800 text-2xl">1</div>
+            <span class="text-xs font-black mt-1 truncate w-20">{{ sortedPlayers[0].name }}</span>
+          </div>
+
+          <!-- 2ème -->
+          <div v-if="sortedPlayers[1]" class="flex flex-col items-center">
+            <div :class="getPlayerColor(sortedPlayers[1].name)" class="w-12 h-12 rounded-full border-4 border-white shadow-md flex items-center justify-center text-white font-black uppercase">
+              {{ sortedPlayers[1].name.charAt(0) }}
+            </div>
+            <div class="bg-slate-200 w-16 h-12 rounded-t-xl mt-2 flex items-center justify-center font-black text-slate-500">2</div>
+            <span class="text-[10px] font-bold mt-1 truncate w-16">{{ sortedPlayers[1].name }}</span>
+          </div>
+        </div>
+
+        <!-- Liste scrollable pour le reste -->
+        <div class="bg-slate-50 rounded-3xl p-4 border border-slate-100 max-h-48 overflow-y-auto custom-scrollbar mb-10">
+          <div 
+            v-for="(p, i) in sortedPlayers" 
+            :key="p.id" 
+            class="flex items-center p-3 mb-2 rounded-xl border" 
+            :class="[
+              p.id === userId ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white border-slate-100'
+            ]"
+          >
+            <span class="w-6 font-black text-xs">{{ i + 1 }}.</span>
+            <div :class="getPlayerColor(p.name)" class="w-6 h-6 rounded-full mx-2 flex items-center justify-center text-white text-[10px] font-black uppercase shadow-inner">
+              {{ p.name.charAt(0) }}
+            </div>
+            <span class="flex-grow text-left font-bold truncate">{{ p.name }}</span>
+            <span class="font-black text-sm">{{ p.score }} pts</span>
+          </div>
+        </div>
+
+        <button 
+          v-if="role === 'admin'" 
+          @click="resumeQuiz" 
+          class="btn-press w-full py-6 bg-indigo-600 text-white rounded-2rem font-black text-2xl shadow-xl hover:bg-indigo-700"
+        >
+          Bloc suivant <i data-lucide="chevrons-right" class="w-6 h-6 inline"></i>
+        </button>
+      </div>
+
+      <!-- 6. RÉSULTATS FINAUX -->
+      <div v-else-if="session && session.status === 'results'" class="p-10 text-center animate-pop">
+        <h2 class="text-4xl font-black mb-10 text-slate-900">🏆 PODIUM FINAL</h2>
+
+        <div class="space-y-4 mb-14">
+          <div 
+            v-for="(p, i) in sortedPlayers.slice(0, 3)" 
+            :key="p.id" 
+            class="flex items-center p-6 rounded-[2.5rem] shadow-xl border-4" 
+            :class="[
+              i === 0 ? 'bg-slate-900 text-white border-yellow-400 scale-105' : 
+              p.id === userId ? 'ring-4 ring-indigo-200' : 'bg-white border-slate-50'
+            ]"
+          >
+            <span class="text-4xl mr-6" :class="[i === 0 ? 'text-yellow-400' : 'text-slate-400']">{{ ['🥇', '🥈', '🥉'][i] }}</span>
+            <div class="flex-grow text-left">
+              <div class="text-[10px] font-black uppercase tracking-widest" :class="i === 0 ? 'text-yellow-400' : 'text-slate-400'">
+                {{ i === 0 ? 'Gagnant' : i === 1 ? 'Deuxième' : 'Troisième' }}
+              </div>
+              <div class="text-2xl font-black truncate">{{ p.name }}</div>
+            </div>
+            <div class="text-right">
+              <div class="text-3xl font-black">{{ p.score }}</div>
+              <div class="text-[10px] font-black uppercase text-slate-500">pts</div>
+            </div>
+          </div>
+        </div>
+
+        <button 
+          @click="resetAll" 
+          class="text-slate-400 font-black uppercase text-xs flex items-center gap-3 mx-auto hover:text-indigo-500 transition-colors"
+        >
+          <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          Recommencer une session
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // --- CONFIGURATION FIREBASE ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyA06lwfBciF8K-mU-7OaW-1zkOFJVN3rtc",
+      authDomain: "quiz-famille-4d872.firebaseapp.com",
+      projectId: "quiz-famille-4d872",
+      storageBucket: "quiz-famille-4d872.firebasestorage.app",
+      messagingSenderId: "727437618700",
+      appId: "1:727437618700:web:0473b0a26958cb08550829"
+    };
+    
+    const appId = 'famille-quiz-4d872';
+
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+    import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+    import { 
+      getFirestore, doc, setDoc, getDoc, onSnapshot, collection, updateDoc, deleteDoc 
+    } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+    const firebaseApp = initializeApp(firebaseConfig);
+    const db = getFirestore(firebaseApp);
+    const auth = getAuth(firebaseApp);
+
+    // Vue App
+    const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
+
+    const ALL_QUESTIONS = [
+      // ... tes 100+ questions (je garde la structure, ajoute-les ici)
+      { question: "Quelle est la capitale de l'Australie ?", options: ["Sydney", "Melbourne", "Canberra", "Perth"], answer: 2 },
+      { question: "Complétez la suite : 1, 3, 6, 10, ... ?", options: ["12", "15", "18", "21"], answer: 1 },
+      // Ajoute toutes tes questions ici...
+    ];
+
+    createApp({
+      setup() {
+        const loading = ref(true);
+        const userId = ref(null);
+        const role = ref(null);
+        const name = ref('');
+        const sessionId = ref('');
+        const tempName = ref('');
+        const tempId = ref('');
+        const errorMessage = ref('');
+        const session = ref(null);
+        const players = ref([]);
+        const nameInput = ref(null);
+        const playerLocalIndex = ref(0);
+        const selectedIdx = ref(null);
+        const hasValidated = ref(false);
+
+        onMounted(async () => {
+          try {
+            const cred = await signInAnonymously(auth);
+            userId.value = cred.user.uid;
+
+            // Récupération de l'ID session depuis l'URL ou le LocalStorage
+            const urlParams = new URLSearchParams(window.location.search);
+            const joinId = urlParams.get('join');
+            const savedSessionId = localStorage.getItem('quiz_session_id');
+            const savedRole = localStorage.getItem('quiz_role');
+            const savedName = localStorage.getItem('quiz_name');
+
+            if (joinId) {
+              tempId.value = joinId.toUpperCase();
+              nextTick(() => {
+                if (nameInput.value) nameInput.value.focus();
+              });
+            } else if (savedSessionId && savedRole && savedName) {
+              // Reconnexion automatique si les données existent
+              sessionId.value = savedSessionId;
+              role.value = savedRole;
+              name.value = savedName;
+              watchSession(savedSessionId);
+            }
+          } catch (e) {
+            console.error(e);
+          } finally {
+            loading.value = false;
+            nextTick(() => lucide.createIcons());
+          }
+        });
+
+        const getPlayerColor = (playerName) => {
+          const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500'];
+          let hash = 0;
+          for (let i = 0; i < playerName.length; i++) {
+            hash = playerName.charCodeAt(i) + ((hash << 5) - hash);
+          }
+          return colors[Math.abs(hash) % colors.length];
+        };
+
+        const isImageUrl = (str) => {
+          if (!str) return false;
+          return str.startsWith('http') || str.startsWith('https') || str.startsWith('data:');
+        };
+
+        const getOptionClass = (idx) => {
+          if (!hasValidated.value) {
+            return selectedIdx.value === idx ? 
+              'border-indigo-600 bg-indigo-50 shadow-md' : 
+              'border-slate-100 hover:border-indigo-300';
+          }
+
+          const q = session.value?.questions?.[playerLocalIndex.value];
+          if (idx === q.answer) {
+            return 'border-green-500 bg-green-50 text-green-700 shadow-sm';
+          }
+          if (selectedIdx.value === idx && idx !== q.answer) {
+            return 'border-red-500 bg-red-50 text-red-700 opacity-80';
+          }
+          return 'border-slate-100 bg-slate-50 opacity-40 grayscale';
+        };
+
+        const generateQR = (id) => {
+          nextTick(() => {
+            const qrEl = document.getElementById('qrcode');
+            if (qrEl) {
+              qrEl.innerHTML = '';
+              const url = `${window.location.origin}${window.location.pathname}?join=${id}`;
+              setTimeout(() => {
+                new QRCode(qrEl, {
+                  text: url,
+                  width: 128,
+                  height: 128,
+                  colorDark: "#4f46e5",
+                  colorLight: "#ffffff",
+                  correctLevel: QRCode.CorrectLevel.H
+                });
+              }, 50);
+            }
+          });
+        };
+
+        const getRandomQuestions = () => {
+          let used = JSON.parse(localStorage.getItem('quiz_memory') || '[]');
+          let available = ALL_QUESTIONS.map((q, i) => i).filter(idx => !used.includes(idx));
+          
+          if (available.length < 15) {
+            used = [];
+            available = ALL_QUESTIONS.map((_, i) => i);
+          }
+          
+          const selectedIndices = available.sort(() => 0.5 - Math.random()).slice(0, 15);
+          localStorage.setItem('quiz_memory', JSON.stringify([...used, ...selectedIndices]));
+          
+          return selectedIndices.map(idx => ALL_QUESTIONS[idx]);
+        };
+
+        const initAdmin = async () => {
+          if (!tempName.value) return;
+
+          const id = Math.random().toString(36).substring(2, 6).toUpperCase();
+          const selectedQs = getRandomQuestions();
+
+          const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
+          await setDoc(sRef, {
+            id,
+            status: 'lobby',
+            currentBlock: 0,
+            adminId: userId.value,
+            adminName: tempName.value,
+            questions: selectedQs
+          });
+
+          const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players', userId.value);
+          await setDoc(pRef, {
+            name: tempName.value,
+            score: 0,
+            localIndex: 0,
+            finishedBlock: false
+          });
+
+          name.value = tempName.value;
+          sessionId.value = id;
+          role.value = 'admin';
+          
+          localStorage.setItem('quiz_session_id', id);
+          localStorage.setItem('quiz_role', 'admin');
+          localStorage.setItem('quiz_name', tempName.value);
+          
+          watchSession(id);
+        };
+
+        const joinGame = async () => {
+          errorMessage.value = '';
+          if (!tempName.value || !tempId.value) return;
+
+          const id = tempId.value.toUpperCase();
+          const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
+          const snap = await getDoc(sRef);
+
+          if (snap.exists()) {
+            const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players', userId.value);
+            const pSnap = await getDoc(pRef);
+
+            if (!pSnap.exists()) {
+              await setDoc(pRef, {
+                name: tempName.value,
+                score: 0,
+                localIndex: 0,
+                finishedBlock: false
+              });
+            }
+
+            name.value = tempName.value;
+            sessionId.value = id;
+            role.value = 'player';
+            
+            localStorage.setItem('quiz_session_id', id);
+            localStorage.setItem('quiz_role', 'player');
+            localStorage.setItem('quiz_name', tempName.value);
+            
+            watchSession(id);
+          } else {
+            errorMessage.value = 'Code de session introuvable...';
+          }
+        };
+
+        // ✅ FONCTION CORRIGÉE : Détecte suppression/Fin de session
+        const watchSession = (id) => {
+          const unsubSession = onSnapshot(
+            doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id),
+            (s) => {
+              // ✅ NOUVEAU : Si la session n'existe plus (supprimée par admin)
+              if (!s.exists()) {
+                console.log('Session supprimée, retour à l\'accueil');
+                // Reset complet pour retour à l'accueil
+                session.value = null;
+                role.value = null;
+                sessionId.value = null;
+                players.value = [];
+                playerLocalIndex.value = 0;
+                selectedIdx.value = null;
+                hasValidated.value = false;
+                localStorage.removeItem('quiz_session_id');
+                localStorage.removeItem('quiz_role');
+                localStorage.removeItem('quiz_name');
+                return;
+              }
+
+              const data = s.data();
+              session.value = data;
+
+              // ✅ Gestion fin de partie (results) - optionnel : reset direct ou laisser voir podium
+              if (data.status === 'results') {
+                // Option 1 : Laisser voir le podium final puis retour auto après 10s
+                setTimeout(() => {
+                  if (session.value?.status === 'results') {
+                    resetAll();
+                  }
+                }, 10000);
+              }
+
+              if (data.status === 'lobby') {
+                generateQR(id);
+                nextTick(() => lucide.createIcons());
+              }
+
+              // Watch players
+              const unsubPlayers = onSnapshot(
+                collection(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players'),
+                (s) => {
+                  players.value = s.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                  // RECONNAISSANCE DU JOUEUR ET RÉCUPÉRATION DE L'INDEX
+                  const me = players.value.find(p => p.id === userId.value);
+                  if (me && me.localIndex !== undefined) {
+                    // On ne met à jour que si on a rafraîchi (index local = 0) ou si la valeur en base est plus avancée (sécurité)
+                    if (playerLocalIndex.value === 0 || me.localIndex > playerLocalIndex.value) {
+                      playerLocalIndex.value = me.localIndex;
+                    }
+                  }
+                }
+              );
+
+              return () => unsubPlayers();
+            },
+            (error) => {
+              console.error('Erreur watchSession:', error);
+              // En cas d'erreur réseau, reset aussi
+              session.value = null;
+              role.value = null;
+            }
+          );
+
+          return unsubSession;
+        };
+
+        const submitAndNext = async () => {
+          if (selectedIdx.value === null) return;
+          hasValidated.value = true;
+
+          const q = session.value.questions[playerLocalIndex.value];
+          const isCorrect = selectedIdx.value === q.answer;
+
+          setTimeout(async () => {
+            const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value, 'players', userId.value);
+            const pSnap = await getDoc(pRef);
+            const scoreNow = (pSnap.data()?.score || 0);
+
+            const nextIdx = playerLocalIndex.value + 1;
+            const isFinished = nextIdx >= (session.value.currentBlock + 1) * 5;
+
+            await updateDoc(pRef, {
+              score: isCorrect ? scoreNow + 1 : scoreNow,
+              localIndex: nextIdx,
+              finishedBlock: isFinished
+            });
+
+            // On met à jour localement pour l'affichage immédiat
+            playerLocalIndex.value = nextIdx;
+            selectedIdx.value = null;
+            hasValidated.value = false;
+          }, 2000);
+        };
+
+        const nextStep = async () => {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), {
+            status: 'checkpoint'
+          });
+        };
+
+        const resumeQuiz = async () => {
+          const nextBlock = session.value.currentBlock + 1;
+          const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value);
+
+          if (nextBlock * 5 >= 15) {
+            // Fin du quiz
+            await updateDoc(sRef, { status: 'results' });
+          } else {
+            // Reset finishedBlock pour tout le monde
+            for (const p of players.value) {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value, 'players', p.id), {
+                finishedBlock: false
+              });
+            }
+            await updateDoc(sRef, {
+              currentBlock: nextBlock,
+              status: 'playing'
+            });
+          }
+        };
+
+        // ✅ FONCTION CORRIGÉE : Supprime la session Firestore pour tous les joueurs
+        const resetAll = async () => {
+          if (role.value === 'admin' && sessionId.value) {
+            try {
+              // Supprime la session -> déclenche watchSession(!s.exists()) chez TOUS les joueurs
+              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value));
+              console.log('Session supprimée par admin');
+            } catch (e) {
+              console.error('Erreur suppression session:', e);
+            }
+          }
+
+          // Nettoyage local
+          localStorage.removeItem('quiz_session_id');
+          localStorage.removeItem('quiz_role');
+          localStorage.removeItem('quiz_name');
+          
+          // Reset état Vue (redondant mais sûr)
+          session.value = null;
+          role.value = null;
+          sessionId.value = null;
+          players.value = [];
+          playerLocalIndex.value = 0;
+          selectedIdx.value = null;
+          hasValidated.value = false;
+
+          // Recharge optionnel (laisser Vue gérer normalement)
+          // window.location.reload();
+        };
+
+        const updateStatus = (status) => {
+          updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), {
+            status
+          });
+        };
+
+        return {
+          loading, role, name, sessionId, tempName, tempId, session, players, userId, errorMessage,
+          nameInput, playerLocalIndex, selectedIdx, hasValidated,
+          isImageUrl, getPlayerColor, getOptionClass, currentQuestion: computed(() => 
+            session.value?.questions?.[playerLocalIndex.value]?.question || ''
+          ),
+          isWaitingForBlock: computed(() => 
+            playerLocalIndex.value >= (session.value?.currentBlock + 1) * 5
+          ),
+          playersFinishedBlock: computed(() => 
+            players.value.filter(p => p.finishedBlock).length
+          ),
+          sortedPlayers: computed(() => 
+            [...players.value].sort((a, b) => b.score - a.score)
+          ),
+          initAdmin, joinGame, submitAndNext, nextStep, resumeQuiz, resetAll, updateStatus
+        };
+      }
+    }).mount('#app');
+  </script>
 </body>
 </html>
