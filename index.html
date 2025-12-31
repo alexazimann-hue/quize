@@ -20,14 +20,14 @@
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc, deleteDoc, collection, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-        // Récupération sécurisée de la configuration Firebase injectée par l'environnement
+        // Récupération sécurisée de la configuration Firebase
         const getFirebaseConfig = () => {
             try {
-                if (typeof __firebase_config !== 'undefined') {
-                    return JSON.parse(__firebase_config);
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    return typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
                 }
                 if (window.__firebase_config) {
-                    return JSON.parse(window.__firebase_config);
+                    return typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
                 }
             } catch (e) {
                 console.error("Erreur de parsing config Firebase", e);
@@ -38,7 +38,7 @@
         const firebaseConfig = getFirebaseConfig();
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'quiz-familial-prod';
 
-        // Initialisation des services uniquement si la config est présente
+        // Initialisation globale
         let app, auth, db;
         if (firebaseConfig && firebaseConfig.apiKey) {
             app = initializeApp(firebaseConfig);
@@ -46,58 +46,32 @@
             db = getFirestore(app);
         }
 
-        const { useState, useEffect, useCallback } = React;
+        const { useState, useEffect } = React;
 
-        // Composant Icon
+        // Composant Icon simple
         const Icon = ({ name, size = 20, className = "" }) => {
             const icons = {
                 trophy: <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 5h1.5a2.5 2.5 0 0 0 0-5H18M12 22v-4m-7-2 2-2h10l2 2m-13-8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6H5z"/>,
                 users: <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8m13 10v-2a4 4 0 0 0-3-3.87m-4-12a4 4 0 0 1 0 7.75"/>,
-                "plus-circle": (
-                    <>
-                        <circle cx="12" cy="12" r="10"/>
-                        <path d="M12 8v8m-4-4h8"/>
-                    </>
-                ),
+                "plus-circle": <><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></>,
                 "log-in": <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>,
-                "x-circle": (
-                    <>
-                        <circle cx="12" cy="12" r="10"/>
-                        <path d="m15 9-6 6m0-6 6 6"/>
-                    </>
-                ),
+                "x-circle": <><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6m0-6 6 6"/></>,
                 play: <polygon points="5 3 19 12 5 21 5 3"/>,
-                "check-circle": (
-                    <>
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                        <polyline points="22 4 12 14.01 9 11.01"/>
-                    </>
-                )
+                "check-circle": <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>
             };
 
             return (
-                <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    width={size} 
-                    height={size} 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    className={className}
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
                     {icons[name] || null}
                 </svg>
             );
         };
 
         const QUIZ_DATA = [
-            { id: 1, type: 'Culture', category: 'Géographie', question: "Quel est le plus petit pays du monde ?", options: ["Monaco", "Le Vatican", "Saint-Marin", "Andorre"], response: "Le Vatican" },
-            { id: 2, type: 'Culture', category: 'Gastronomie', question: "Quel ingrédient est à la base du chocolat ?", options: ["Le café", "La vanille", "Le cacao", "Le sucre"], response: "Le cacao" },
-            { id: 3, type: 'Logique', category: 'Chiffres', question: "Si j'ai 3 pommes et que tu m'en prends 2, combien de pommes as-tu ?", options: ["1 pomme", "2 pommes", "3 pommes", "Aucune"], response: "2 pommes" },
-            { id: 4, type: 'Logique', category: 'Devinette', question: "Qu'est-ce que tout le monde possède mais que les autres utilisent plus que vous ?", options: ["Votre voiture", "Votre argent", "Votre prénom", "Votre temps"], response: "Votre prénom" }
+            { id: 1, category: 'Géographie', question: "Quel est le plus petit pays du monde ?", options: ["Monaco", "Le Vatican", "Saint-Marin", "Andorre"], response: "Le Vatican" },
+            { id: 2, category: 'Gastronomie', question: "Quel ingrédient est à la base du chocolat ?", options: ["Le café", "La vanille", "Le cacao", "Le sucre"], response: "Le cacao" },
+            { id: 3, category: 'Logique', question: "Si j'ai 3 pommes et que tu m'en prends 2, combien de pommes as-tu ?", options: ["1 pomme", "2 pommes", "3 pommes", "Aucune"], response: "2 pommes" },
+            { id: 4, category: 'Devinette', question: "Qu'est-ce que tout le monde possède mais que les autres utilisent plus que vous ?", options: ["Votre voiture", "Votre argent", "Votre prénom", "Votre temps"], response: "Votre prénom" }
         ];
 
         function App() {
@@ -110,6 +84,7 @@
             const [availableGames, setAvailableGames] = useState([]);
             const [error, setError] = useState(null);
 
+            // Initialisation de l'Auth
             useEffect(() => {
                 if (!auth) {
                     setError("Configuration Firebase manquante ou invalide.");
@@ -118,14 +93,17 @@
 
                 const initAuth = async () => {
                     try {
+                        // Petit délai pour laisser les variables globales s'injecter
+                        await new Promise(r => setTimeout(r, 500));
+
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
                         } else {
                             await signInAnonymously(auth);
                         }
                     } catch (err) {
-                        console.error("Erreur d'authentification:", err);
-                        setError("Impossible de se connecter au serveur de jeu.");
+                        console.error("Auth error:", err);
+                        setError("Erreur d'authentification. Veuillez rafraîchir.");
                     }
                 };
 
@@ -139,6 +117,7 @@
                 return () => unsubscribe();
             }, []);
 
+            // Écoute du Lobby
             useEffect(() => {
                 if (!authReady || !user || !db || view !== 'lobby') return;
                 
@@ -146,13 +125,12 @@
                 const unsubscribe = onSnapshot(sessionsRef, (snapshot) => {
                     const games = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setAvailableGames(games.filter(g => g.status === 'waiting' || g.status === 'playing'));
-                }, (error) => {
-                    console.error("Firestore Lobby Error:", error);
-                });
+                }, (err) => console.error("Lobby error:", err));
                 
                 return () => unsubscribe();
             }, [authReady, user, view]);
 
+            // Synchronisation du jeu actif
             useEffect(() => {
                 if (!authReady || !user || !db || view === 'lobby' || !gameState?.id) return;
                 
@@ -161,9 +139,7 @@
                     if (docSnap.exists()) {
                         const data = docSnap.data();
                         setGameState(prev => ({ ...prev, ...data }));
-                        
                         if (data.status === 'playing' && view === 'waiting') setView('playing');
-                        
                         if (gameState && data.currentQuestionIndex !== gameState.currentQuestionIndex) {
                             setSelectedAnswer(null);
                             setShowResult(false);
@@ -172,15 +148,13 @@
                         setView('lobby');
                         setGameState(null);
                     }
-                }, (error) => {
-                    console.error("Game Sync Error:", error);
-                });
+                }, (err) => console.error("Sync error:", err));
                 
                 return () => unsubscribe();
             }, [authReady, user, view, gameState?.id]);
 
             const createGame = async () => {
-                if (!authReady || !user || !db) return;
+                if (!db || !user) return;
                 const gameId = `game_${user.uid.slice(0, 5)}`;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameId);
                 const newGame = { 
@@ -195,24 +169,23 @@
                     await setDoc(gameDocRef, newGame);
                     setGameState(newGame);
                     setView('waiting');
-                } catch (e) { console.error("Create Error:", e); }
+                } catch (e) { console.error(e); }
             };
 
             const joinGame = async (game) => {
-                if (!authReady || !user || !db) return;
+                if (!db || !user) return;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', game.id);
                 try {
                     await updateDoc(gameDocRef, { players: arrayUnion(user.uid) });
                     setGameState(game);
                     setView(game.status === 'playing' ? 'playing' : 'waiting');
-                } catch (e) { console.error("Join Error:", e); }
+                } catch (e) { console.error(e); }
             };
 
             const launchGame = async () => {
-                if (!gameState || !user || !db) return;
+                if (!gameState || !db) return;
                 const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', gameState.id);
                 await updateDoc(gameDocRef, { status: 'playing' });
-                setView('playing');
             };
 
             const handleAnswerSelect = (option) => {
@@ -234,10 +207,10 @@
 
             if (error) {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-red-50 p-6">
-                        <div className="bg-white p-8 rounded-3xl shadow-lg border border-red-100 max-w-sm text-center">
+                    <div className="min-h-screen flex items-center justify-center bg-red-50 p-6 text-center">
+                        <div className="bg-white p-8 rounded-3xl shadow-lg border max-w-sm">
                             <Icon name="x-circle" size={48} className="text-red-500 mx-auto mb-4" />
-                            <h2 className="text-xl font-bold text-slate-800 mb-2">Erreur de connexion</h2>
+                            <h2 className="text-xl font-bold mb-2">Erreur</h2>
                             <p className="text-slate-500 text-sm">{error}</p>
                         </div>
                     </div>
@@ -248,8 +221,8 @@
                 return (
                     <div className="min-h-screen flex items-center justify-center bg-slate-50">
                         <div className="flex flex-col items-center gap-4">
-                            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-slate-500 font-medium">Connexion en cours...</p>
+                            <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                            <p className="text-slate-500 font-medium animate-pulse">Initialisation du jeu...</p>
                         </div>
                     </div>
                 );
@@ -259,27 +232,26 @@
                 return (
                     <div className="min-h-screen flex flex-col items-center justify-center p-4">
                         <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border">
-                            <div className="bg-indigo-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                                <Icon name="trophy" className="text-indigo-600" size={32} />
+                            <div className="bg-indigo-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 text-indigo-600">
+                                <Icon name="trophy" size={32} />
                             </div>
-                            <h1 className="text-3xl font-bold mb-6 text-slate-800">Quiz Familial</h1>
-                            <button 
-                                onClick={createGame} 
-                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg mb-8 flex items-center justify-center gap-2 transition-transform active:scale-95"
-                            >
+                            <h1 className="text-3xl font-bold mb-8 text-slate-800">Quiz Familial</h1>
+                            <button onClick={createGame} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg mb-8 flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors">
                                 <Icon name="plus-circle" /> Créer une partie
                             </button>
-                            <div className="text-left space-y-3">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Salons actifs</p>
-                                {availableGames.length > 0 ? availableGames.map(game => (
-                                    <button key={game.id} onClick={() => joinGame(game)} className="w-full border p-4 rounded-xl flex items-center justify-between hover:border-indigo-500 transition-all group">
-                                        <div className="flex items-center gap-3">
-                                            <Icon name="users" className="text-slate-400 group-hover:text-indigo-600" />
-                                            <span className="font-bold text-slate-700">Salon de {game.id.split('_')[1]}</span>
-                                        </div>
-                                        <Icon name="log-in" className="text-slate-300 group-hover:text-indigo-600" />
-                                    </button>
-                                )) : <p className="text-slate-400 text-sm italic">Aucune partie disponible...</p>}
+                            <div className="text-left">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Salons disponibles</p>
+                                <div className="space-y-3">
+                                    {availableGames.length > 0 ? availableGames.map(game => (
+                                        <button key={game.id} onClick={() => joinGame(game)} className="w-full border p-4 rounded-xl flex items-center justify-between hover:border-indigo-500 transition-all group">
+                                            <div className="flex items-center gap-3">
+                                                <Icon name="users" className="text-slate-400 group-hover:text-indigo-600" />
+                                                <span className="font-bold text-slate-700">Salon de {game.id.split('_')[1]}</span>
+                                            </div>
+                                            <Icon name="log-in" className="text-slate-300 group-hover:text-indigo-600" />
+                                        </button>
+                                    )) : <p className="text-slate-400 text-sm italic py-2">En attente de nouveaux salons...</p>}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -288,29 +260,29 @@
 
             if (view === 'waiting') {
                 const isAdmin = gameState?.adminId === user?.uid;
-                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.href)}`;
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
                         <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-2xl font-bold">Salle d'attente</h2>
-                                <button onClick={() => setView('lobby')} className="text-slate-400"><Icon name="x-circle" /></button>
+                            <h2 className="text-2xl font-bold mb-6">Salle d'attente</h2>
+                            <div className="bg-slate-50 p-8 rounded-2xl mb-6">
+                                <div className="text-4xl mb-2">🎮</div>
+                                <p className="text-sm font-bold text-slate-400 uppercase">Code de session</p>
+                                <p className="text-2xl font-black text-indigo-600 tracking-widest">{gameState?.id.split('_')[1].toUpperCase()}</p>
                             </div>
-                            <div className="bg-slate-50 p-6 rounded-2xl mb-6">
-                                <img src={qrUrl} className="mx-auto w-40 h-40 mb-4 border-4 border-white shadow-sm" alt="QR Code" />
-                                <p className="text-sm text-slate-500">Scannez pour rejoindre</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2 mb-8 justify-center">
-                                {gameState?.players?.map((p, i) => (
-                                    <span key={i} className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold">Joueur {p.slice(0,4)}</span>
-                                ))}
+                            <div className="mb-8">
+                                <p className="text-sm text-slate-500 mb-3">Joueurs connectés ({gameState?.players?.length || 0})</p>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    {gameState?.players?.map((p, i) => (
+                                        <span key={i} className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold border border-indigo-100">Joueur {p.slice(0,4)}</span>
+                                    ))}
+                                </div>
                             </div>
                             {isAdmin ? (
                                 <button onClick={launchGame} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2">
                                     <Icon name="play" /> Lancer le Quiz
                                 </button>
                             ) : (
-                                <p className="text-indigo-600 font-bold animate-pulse">L'admin va bientôt lancer la partie...</p>
+                                <div className="bg-indigo-50 text-indigo-600 p-4 rounded-xl font-bold animate-pulse">L'admin va lancer la partie...</div>
                             )}
                         </div>
                     </div>
@@ -320,10 +292,11 @@
             if (gameState?.status === 'finished') {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border">
-                            <Icon name="trophy" size={60} className="text-yellow-500 mx-auto mb-4" />
-                            <h2 className="text-2xl font-bold mb-4">Quiz terminé !</h2>
-                            <button onClick={() => setView('lobby')} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">Menu principal</button>
+                        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
+                            <Icon name="trophy" size={64} className="text-yellow-500 mx-auto mb-4" />
+                            <h2 className="text-2xl font-bold mb-4">C'est fini !</h2>
+                            <p className="text-slate-500 mb-8">Bravo à tous les participants.</p>
+                            <button onClick={() => setView('lobby')} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg">Retour au menu</button>
                         </div>
                     </div>
                 );
@@ -333,35 +306,46 @@
             const isAdmin = gameState?.adminId === user?.uid;
 
             return (
-                <div className="min-h-screen p-4 md:p-8">
-                    <div className="max-w-2xl mx-auto">
-                        <div className="bg-white p-4 rounded-2xl shadow-sm border mb-6 flex justify-between items-center">
-                            <div className="flex items-center gap-2 font-bold text-slate-800">
-                                <Icon name="users" className="text-indigo-600" />
-                                {isAdmin ? "👑 Admin" : "👤 Joueur"}
-                            </div>
-                            <div className="text-sm font-bold text-slate-400">Question {(gameState?.currentQuestionIndex || 0) + 1}/{QUIZ_DATA.length}</div>
+                <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
+                    <div className="max-w-2xl w-full">
+                        <div className="flex justify-between items-center mb-6 px-4">
+                            <span className="bg-white px-4 py-2 rounded-full shadow-sm text-xs font-bold border flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${isAdmin ? 'bg-amber-400' : 'bg-green-400'}`}></div>
+                                {isAdmin ? "ORGANISATEUR" : "JOUEUR"}
+                            </span>
+                            <span className="text-slate-400 font-bold text-sm uppercase tracking-tighter">Question {(gameState?.currentQuestionIndex || 0) + 1} / {QUIZ_DATA.length}</span>
                         </div>
 
-                        <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border">
-                            <div className="bg-indigo-600 p-6 text-white font-bold uppercase tracking-widest text-xs">
-                                {currentQ?.category}
+                        <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border">
+                            <div className="h-2 w-full bg-slate-100">
+                                <div className="h-full bg-indigo-600 transition-all duration-500" style={{width: `${((gameState?.currentQuestionIndex || 0) + 1) / QUIZ_DATA.length * 100}%`}}></div>
                             </div>
-                            <div className="p-8 md:p-12 text-center">
-                                <h2 className="text-2xl font-bold mb-10 text-slate-800">{currentQ?.question}</h2>
+                            <div className="p-8 md:p-12">
+                                <div className="inline-block bg-indigo-50 text-indigo-600 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-6">
+                                    {currentQ?.category}
+                                </div>
+                                <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-10 leading-tight">{currentQ?.question}</h2>
                                 <div className="grid grid-cols-1 gap-4">
                                     {currentQ?.options.map((opt, i) => {
                                         const isCorrect = opt === currentQ.response;
                                         const isSelected = selectedAnswer === opt;
                                         let style = "bg-slate-50 border-2 border-slate-100 text-slate-700 hover:border-indigo-200";
+                                        
                                         if (showResult) {
-                                            if (isCorrect) style = "bg-emerald-50 border-emerald-500 text-emerald-700 ring-4 ring-emerald-100";
-                                            else if (isSelected) style = "bg-red-50 border-red-500 text-red-700";
-                                            else style = "opacity-40 bg-slate-50 border-slate-100 text-slate-300";
-                                        } else if (isSelected) style = "bg-indigo-50 border-indigo-500 text-indigo-700";
+                                            if (isCorrect) style = "bg-emerald-50 border-emerald-500 text-emerald-800 ring-4 ring-emerald-100 scale-[1.02]";
+                                            else if (isSelected) style = "bg-red-50 border-red-500 text-red-800 opacity-60";
+                                            else style = "opacity-30 border-slate-100";
+                                        } else if (isSelected) {
+                                            style = "bg-indigo-50 border-indigo-500 text-indigo-700 ring-4 ring-indigo-100";
+                                        }
 
                                         return (
-                                            <button key={i} disabled={showResult} onClick={() => handleAnswerSelect(opt)} className={`p-5 rounded-2xl font-bold transition-all text-left flex justify-between items-center ${style}`}>
+                                            <button 
+                                                key={i} 
+                                                disabled={showResult} 
+                                                onClick={() => handleAnswerSelect(opt)} 
+                                                className={`p-6 rounded-2xl font-bold transition-all text-left flex justify-between items-center group ${style}`}
+                                            >
                                                 {opt}
                                                 {showResult && isCorrect && <Icon name="check-circle" className="text-emerald-500" />}
                                             </button>
@@ -370,9 +354,9 @@
                                 </div>
                             </div>
                             {isAdmin && showResult && (
-                                <div className="p-6 bg-slate-50 border-t flex justify-center">
-                                    <button onClick={nextQuestion} className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg">
-                                        {(gameState?.currentQuestionIndex || 0) === QUIZ_DATA.length - 1 ? "Terminer" : "Suivant →"}
+                                <div className="p-8 bg-slate-50 border-t flex justify-center">
+                                    <button onClick={nextQuestion} className="w-full max-w-xs bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-xl hover:bg-indigo-700 transition-transform active:scale-95">
+                                        {(gameState?.currentQuestionIndex || 0) === QUIZ_DATA.length - 1 ? "Voir les résultats" : "Question Suivante →"}
                                     </button>
                                 </div>
                             )}
